@@ -33,12 +33,13 @@ def dispatch(path, payload):
         from family_design import design_family
         mode = body["mode"]
         target = None
-        if mode == "protected":
+        if mode in ("protected","peak_band"):
             target = np.frombuffer(base64.b64decode(body["target"], validate=True),
                                    dtype="<c16").reshape(len(FREQ), 50, 50)
         result = design_family(mask_array(body["mask"]), body["family"], mode,
-                               fixed=True if mode == "protected" else body["fixed"],
-                               goals=body.get("goals"), target=target)
+                               fixed=True if mode in ("protected","peak_band") else body["fixed"],
+                               goals=body.get("goals"), target=target,
+                               scope=body.get("scope","plane"), point=body.get("point"))
     else:
         raise ValueError("未知工作台操作")
     return json.dumps(result, ensure_ascii=False, allow_nan=False)

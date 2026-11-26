@@ -34,6 +34,7 @@
     "S237/field_seed.py",
     "S237/geometry_operator.npz",
     "S237/geometry_screen.py",
+    "S237/peak_band.py",
     "S237/point_swaps.py",
     "S237/protected_direct.py",
     "S237/protected_linear.py",

@@ -14,18 +14,18 @@ def worker_pool():
                                mp_context=get_context("spawn"))
 
 
-def solve_one(mask, target, family):
+def solve_one(mask, target, family, mode="protected", scope="plane", point=None):
     from family_design import design_family
 
-    return design_family(mask, family, "protected", target=target, fixed=True, parallel=True)
+    return design_family(mask, family, mode, target=target, fixed=True, parallel=True, scope=scope, point=point)
 
 
-def design_all(mask, target):
+def design_all(mask, target, mode="protected", scope="plane", point=None):
     pool = worker_pool()
     jobs = {}
     try:
         for family in FAMILIES:
-            jobs[pool.submit(solve_one, mask, target, family)] = family
+            jobs[pool.submit(solve_one, mask, target, family, mode, scope, point)] = family
         for future in as_completed(jobs):
             family = jobs[future]
             try:

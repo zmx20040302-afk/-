@@ -1,6 +1,8 @@
 'use strict';
 
-const pmutWorker = new Worker(new URL('./worker.js', document.currentScript.src));
+const workerURL = new URL('./worker.js', document.currentScript.src);
+workerURL.search = new URL(document.currentScript.src).search;
+const pmutWorker = new Worker(workerURL);
 const pmutRequests = new Map();
 let pmutSequence = 0;
 let pmutFailure;

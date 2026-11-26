@@ -7,7 +7,9 @@ const installed = new Set();
 const base = new URL('../short_circuit/inverse_design/', self.location.href);
 
 async function checked(url) {
-  const res = await fetch(url);
+  const location = new URL(url, self.location.href);
+  location.search = self.location.search;
+  const res = await fetch(location);
   if (!res.ok) throw Error('下载失败 ' + res.status + ' · ' + new URL(url, self.location.href).pathname);
   return res;
 }

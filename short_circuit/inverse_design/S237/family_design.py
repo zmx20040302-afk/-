@@ -208,9 +208,13 @@ def proposals(mask, gradient):
         yield trial
 
 
-def design_family(mask, family, mode, *, goals=None, fixed=False, target=None, parallel=False):
-    if family not in FAMILIES or mode not in ("absolute", "weighted", "protected") or type(fixed) is not bool:
+def design_family(mask, family, mode, *, goals=None, fixed=False, target=None, parallel=False,
+                  scope="plane", point=None):
+    if family not in FAMILIES or mode not in ("absolute", "weighted", "protected", "peak_band") or type(fixed) is not bool:
         raise ValueError("无效的阵列类别、目标模式或通电数约束。")
+    if mode == "peak_band":
+        from peak_band import design_peak_band
+        return design_peak_band(mask, family, target, scope=scope, point=point)
     source = mask_array(mask)
     initial_k = int(source.sum())
     objective = ProtectedObjective(target) if mode == "protected" else PointObjective(goals, mode == "weighted")

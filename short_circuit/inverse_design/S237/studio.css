@@ -15,3 +15,10 @@ html{scroll-behavior:smooth}body{background:#f2f5f5;color:#19353b}main{max-width
 .familyMetrics{margin:7px 0 9px;font-size:13px}.familyMetrics dt{color:#536f70}
 .familyMetrics dd{margin:0 0 4px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .familyActions{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.familyActions button{font-size:13px;min-height:32px}
+#band{white-space:pre-line;margin:8px 0 12px;padding-left:10px;border-left:3px solid #23756d;font-variant-numeric:tabular-nums;color:#244c4b}
+.featureButtons{gap:5px;margin-top:8px}
+.featureButtons button{font-size:13px;padding:3px 8px;min-height:30px}
+.featureButtons button[aria-pressed=true]{background:#d7eeea;border-color:#22766c;color:#124f48}
+.familyCard details{overflow-x:auto}
+.checkTable{font-size:12px}
+.checkTable th,.checkTable td{padding:5px 3px}
