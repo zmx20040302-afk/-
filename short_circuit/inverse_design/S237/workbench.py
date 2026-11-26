@@ -52,7 +52,7 @@ def protected(m,target):
     return dict(mask=m.astype(int).tolist(),field=encode(p),velocity=encode(u),trials=trials,changed=int((original!=m).sum()),accepted=accepted,elapsed=time.perf_counter()-start,before=float(base_high),after=float(best))
 class Handler(legacy.Handler):
     def do_GET(self):
-        if self.path=='/health':return self.reply(dict(app=APP, protected_batch=True, peak_band=True))
+        if self.path=='/health':return self.reply(dict(app=APP, protected_batch=True, peak_band=True, scalar=True))
         if self.path=='/docs/S321/report.html':
             return self.reply((HERE.parent/'S321'/'report.html').read_bytes(),
                               mime='text/html; charset=utf-8')
@@ -69,7 +69,7 @@ class Handler(legacy.Handler):
             return self.reply(dict(target=encode(np.load(src/'S005525_ref.npy')),mask=np.loadtxt(src/(name+'_base.csv'),delimiter=',',dtype=int).tolist(),candidate=np.loadtxt(HERE.parent/'S234'/(name+'_visit38.csv'),delimiter=',',dtype=int).tolist()))
         super().do_GET()
     def do_POST(self):
-        if self.path not in ('/protected','/weighted','/family-design','/protected-families','/peak-families'):return super().do_POST()
+        if self.path not in ('/protected','/weighted','/family-design','/protected-families','/peak-families','/scalar-families'):return super().do_POST()
         if self.headers.get('Origin') not in (None,legacy.URL) or self.headers.get_content_type()!='application/json':return self.send_error(403)
         if not legacy.slots.acquire(False):return self.reply(dict(error='求解器正在计算，请稍后再试。'),409)
         try:
@@ -79,6 +79,9 @@ class Handler(legacy.Handler):
             if not isinstance(body, dict):
                 raise ValueError('请求需要包含开关矩阵和目标')
             m=mask_array(body['mask'])
+            if self.path=='/scalar-families':
+                from family_design import scalar_options
+                return self.stream_families(m,None,mode='scalar',**scalar_options(body))
             if self.path=='/peak-families':
                 return self.stream_families(m,read_target(body['target']),mode='peak_band',
                                             scope=body.get('scope','plane'),point=body.get('point'))
@@ -88,17 +91,19 @@ class Handler(legacy.Handler):
                     raise ValueError('整面目标及12.50 MHz声场须有有限的非零幅值。')
                 return self.stream_families(m,target)
             if self.path=='/family-design':
-                from family_design import design_family
+                from family_design import design_family, scalar_options
                 family = body.get('family')
                 mode = body.get('mode')
                 if family not in ('random', 'cluster', 'edge', 'stripe', 'patch'):
                     raise ValueError('请选择支持的排布类别')
-                if mode not in ('absolute', 'weighted', 'protected', 'peak_band'):
+                if mode not in ('absolute', 'weighted', 'protected', 'peak_band', 'scalar'):
                     raise ValueError('未知的逆向设计模式')
                 fixed = body.get('fixed', False)
                 if type(fixed) is not bool:
                     raise ValueError('无效的通电数约束')
-                if mode in ('protected','peak_band'):
+                if mode=='scalar':
+                    result = design_family(m, family, mode, fixed=True, **scalar_options(body))
+                elif mode in ('protected','peak_band'):
                     result = design_family(m, family, mode, fixed=True, target=read_target(body['target']),
                                            scope=body.get('scope','plane'),point=body.get('point'))
                 else:

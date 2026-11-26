@@ -193,10 +193,16 @@ function renderBandCompare(){
 }
 function renderStudy(){
   const ok=!!P && ready===rev;
-  $('protect').disabled=!ok||!goal||designing;$('archived').disabled=!storedCandidate||designing;
+  const scalar=$('planeMode').value==='scalar';
+  $('protect').disabled=!ok||(!scalar&&!goal)||designing;$('archived').disabled=!storedCandidate||designing;
+  if(!ok)$('scalarBaseline').textContent='';
   if(!ok){for(const id of ['geo','avg','minR'])$(id).textContent='—';$('roi').replaceChildren();$('compare').replaceChildren();$('band').textContent='';for(const id of ['viewPeak','viewLeft','viewRight'])$(id).disabled=true;displaySlice=null;return}
   if(cacheField!==P){currentSummary=summary(P);currentMetrics=goal?metrics(P,goal,currentSummary):null;cacheField=P}
   const features=bandFeatures(getSpectrum());
+  if(scalar){
+    const metric=$('scalarMetric').value;
+    $('scalarBaseline').textContent='当前图 · '+scopeLabel()+' · '+scalarMetrics[metric][0]+' '+scalarValueLabel(features[metric],metric);
+  }
   displaySlice=selectSlice(features);
   const slice=displaySlice;
   const area=currentSummary.area[slice.lo].map((v,i)=>blend(slice,v,currentSummary.area[slice.hi][i]));
@@ -204,7 +210,7 @@ function renderStudy(){
   $('band').textContent=bandSummary(features);
   $('geo').textContent=area[12].toFixed(2)+' Pa';$('avg').textContent=(area.reduce((a,b)=>a+b,0)/25).toFixed(2)+' Pa';$('minR').textContent=lo.toFixed(2)+' Pa';
   $('roi').innerHTML='<caption>'+fmt(slice.frequency,' MHz')+(slice.lo===slice.hi?'':' · 频间幅值插值')+' · 幅值（Pa）</caption><tr><th>y / x mm</th>'+loc.map(x=>'<th>'+x+'</th>').join('')+'</tr>'+[4,3,2,1,0].map(y=>'<tr><th>'+loc[y]+'</th>'+loc.map((_,x)=>{let v=area[y*5+x],q=(v-lo)/(hi-lo||1);return '<td style="background:hsl(169 34% '+(95-q*24)+'%)">'+v.toFixed(1)+'</td>'}).join('')+'</tr>').join('');
-  if(!goal){$('compare').replaceChildren();return}
+  if(!goal||scalar){$('compare').replaceChildren();return}
   if(!baseline)baseline=currentMetrics.slice();
   if(!comparisonStart)comparisonStart={field:P,region:currentSummary};
   if($('planeMode').value==='peak_band'){renderBandCompare();return;}
@@ -233,22 +239,63 @@ $('importRef').onchange=async e=>{
   }catch(err){note(err.message,true)}finally{e.target.value=''}
 };
 for(const option of $('spectrum').options)$('inverseScope').add(new Option(option.text,option.value));
+const scalarMetrics={
+  peak_Pa:['峰值声压',' Pa'],
+  bandwidth_MHz:['−6 dB 带宽',' MHz'],
+  relative_bandwidth_pct:['−6 dB 相对带宽','%']
+};
+function scalarValueLabel(value,metric){
+  return Number.isFinite(value)?fmt(value,scalarMetrics[metric][1]):'采样范围内未闭合';
+}
+const rememberedScopes={scalar:'center',peak_band:'plane',protected:'plane'};
+$('spectrum').value=$('inverseScope').value=rememberedScopes.scalar;
 function syncScope(event){
   $('spectrum').value=$('inverseScope').value=event.target.value;
+  rememberedScopes[$('planeMode').value]=event.target.value;
+  modeChanged();
   resetScore();
   if(cfg)draw();
 }
 $('spectrum').onchange=$('inverseScope').onchange=syncScope;
 function modeChanged(){
   comparisonKey=null;
-  const peak=$('planeMode').value==='peak_band';
-  $('scopeLabel').hidden=!peak;
-  $('protect').textContent=peak?'固定通电数，匹配峰值与带边':'固定通电数，优化 12.50 MHz';
+  const mode=$('planeMode').value,scalar=mode==='scalar',peak=mode==='peak_band';
+  const metric=$('scalarMetric').value,scope=$('inverseScope').value,direction=$('scalarDirection').value;
+  $('scopeLabel').hidden=!(peak||scalar);
+  $('referenceControls').hidden=scalar;
+  for(const id of ['scalarFields','scalarPresets','scalarBaseline'])$(id).hidden=!scalar;
+  $('scalarMatch').hidden=direction!=='match';
+  $('scalarUnit').textContent=scalarMetrics[metric][1].trim();
+  $('scalarToleranceUnit').textContent=metric==='relative_bandwidth_pct'?'个百分点':scalarMetrics[metric][1].trim();
+  $('presetCenterPeak').setAttribute('aria-pressed',String(scope==='center'&&metric==='peak_Pa'&&direction==='maximize'));
+  $('presetRoiBand').setAttribute('aria-pressed',String(scope==='roi'&&metric==='bandwidth_MHz'&&direction==='maximize'));
+  $('protect').textContent=scalar?'固定通电数，开始求解':peak?'固定通电数，匹配峰值与带边':'固定通电数，优化 12.50 MHz';
+  if(scalar){
+    const location={center:'在几何中心 (0, 0) 插值复声压后取幅值。',roi:'逐频计算中心 1 mm × 1 mm 内 25 个测点的平均幅值，再从这条曲线取指标。',plane:'逐频计算整面 2,500 个测点的平均幅值。',point:'点击上方声场可选择测点。'}[scope];
+    $('modeHelp').textContent=location+(metric==='peak_Pa'?'峰值取 23 个频点中的最大幅值。':'带宽取主峰两侧 −6 dB 交点之间的频率跨度。')+(metric==='relative_bandwidth_pct'?'相对带宽为该跨度除以两带边的平均频率。':'');
+    return;
+  }
   $('modeHelp').textContent=peak?
     '按所选响应的主峰及左右 −6 dB 交点搜索，并比较目标三个频点的整面幅值。相对初图通过要求八项误差均未变差且至少一项改善，或各项误差均在数值精度内。':
     '高频保护沿用历史验收，比较 12.50 MHz 整面误差、初图峰位和六项上限。';
 }
-$('planeMode').onchange=()=>{modeChanged();resetScore();if(cfg)draw()};
+$('planeMode').onchange=()=>{const scope=rememberedScopes[$('planeMode').value];$('spectrum').value=$('inverseScope').value=scope;modeChanged();resetScore();if(cfg)draw()};
+function changeScalarMetric(){
+  $('scalarValue').value='';$('scalarTolerance').value='0';
+  modeChanged();resetScore();if(cfg)draw();
+}
+$('scalarTolerance').value='0';
+$('scalarMetric').onchange=changeScalarMetric;
+$('scalarDirection').onchange=()=>{modeChanged();resetScore();if(cfg)draw()};
+$('scalarValue').oninput=$('scalarTolerance').oninput=()=>resetScore();
+for(const [id,scope,metric] of [['presetCenterPeak','center','peak_Pa'],['presetRoiBand','roi','bandwidth_MHz']]){
+  $(id).onclick=()=>{
+    rememberedScopes.scalar=scope;
+    $('spectrum').value=$('inverseScope').value=scope;
+    $('scalarMetric').value=metric;$('scalarDirection').value='maximize';
+    changeScalarMetric();
+  };
+}
 modeChanged();
 for(const [key,id] of Object.entries({peak:'viewPeak',left:'viewLeft',right:'viewRight'})){
   $(id).onclick=()=>{if(P&&ready===rev){displayFocus=key;draw()}};
@@ -259,7 +306,7 @@ function replaceMask(mask){M=mask.map(r=>r.slice());invalidate()}
 action('example',async()=>{if(busy||pending)throw Error('请等待当前计算完成');designing=busy=true;try{const ex=await api('/example');setGoal(unpack(ex.target),ex.target,'目标 S005525 · 原库声场 · 65 个阵元通电');storedCandidate=ex.candidate;replaceMask(ex.mask)}finally{designing=busy=false;renderStudy()}});
 action('archived',()=>{if(busy||pending)throw Error('请等待当前计算完成');replaceMask(storedCandidate);$('runNote').textContent='已载入历史 12.50 MHz 方案，按当前模式重新比较。'});
 const familyNames = {random:'随机分散',cluster:'紧凑成团',edge:'边缘优先',stripe:'条纹',patch:'不规则多斑块'};
-const familyModes = {peak_band:'峰值与 −6 dB 通带',protected:'整面保护 / 12.50 MHz',weighted:'测点或频响 / 逐频归一化',absolute:'测点或频响 / 逐项等权'};
+const familyModes = {scalar:'单指标逆向',peak_band:'峰值与 −6 dB 通带',protected:'整面保护 / 12.50 MHz',weighted:'测点或频响 / 逐频归一化',absolute:'测点或频响 / 逐项等权'};
 const familyStates = {verified:'声学达标',partial:'形态符合 · 声学未达标',unavailable:'本次未找到该类方案',error:'请求失败'};
 let familyGeneration=0, familyRun=null;
 
@@ -272,6 +319,7 @@ function staleFamilyResults(){
   familyGeneration++;
   if(!familyRun||familyRun.stale)return;
   familyRun.stale=true;
+  $('restoreRunMask').disabled=true;
   $('familyProgress').textContent='初图、目标或选项已改变。下方保留上次结果供查看和导出，请重新反求后再应用。';
   $('familyCards').querySelectorAll('.familyApply').forEach(btn=>btn.disabled=true);
 }
@@ -304,7 +352,17 @@ function maskCanvas(mask,label){
 function familyMetricRows(mode,m){
   const number=(v,unit)=>Number.isFinite(v)?v.toFixed(3)+unit:'—';
   let rows=[['通电阵元',Number.isInteger(m.active)?m.active+' / 2500':'—']];
-  if(mode==='peak_band'){
+  if(mode==='scalar'){
+    const [label,unit]=scalarMetrics[m.metric];
+    rows.push([label+' · 初图 → 候选',scalarValueLabel(m.initial_value,m.metric)+' → '+scalarValueLabel(m.value,m.metric)]);
+    if(m.direction==='match'){
+      const delta=Number.isFinite(m.value)?Math.max(0,Math.abs(m.value-m.target_value)-m.tolerance):null;
+      rows.push(['距目标容差区间',fmt(delta,m.metric==='relative_bandwidth_pct'?' 个百分点':unit)]);
+    }
+    const r=m.response;
+    rows.push(['候选峰值',fmt(r.peak_Pa,' Pa')+' @ '+fmt(r.peak_MHz,' MHz')],
+      ['候选 −6 dB 左 / 右带边',[r.left_MHz,r.right_MHz].map(f=>Number.isFinite(f)?fmt(f,' MHz'):'未闭合').join(' / ')]);
+  }else if(mode==='peak_band'){
     const response=m.response||{};
     rows.push(['候选峰值',fmt(response.peak_Pa,' Pa')+' · '+fmt(response.peak_MHz,' MHz')],
       ['候选 −6 dB 左 / 右带边',fmt(response.left_MHz,' MHz')+' / '+fmt(response.right_MHz,' MHz')],
@@ -327,9 +385,60 @@ function familyMetricRows(mode,m){
   return rows;
 }
 function resultLabel(mode,result){
+  if(mode==='scalar'&&result.mask){
+    const m=result.metrics;
+    if(!Number.isFinite(m.value))return '带边未闭合';
+    if(m.direction==='match')return m.met_target?'在目标容差内':'超出目标容差';
+    if(!Number.isFinite(m.initial_value))return '获得完整带宽';
+    if(m.improved)return '较初图增加';
+    const epsilon=1e-9*Math.max(1,Math.abs(m.value),Math.abs(m.initial_value));
+    return m.value<m.initial_value-epsilon?'较初图降低':'与初图持平';
+  }
   if(mode==='peak_band'&&result.status==='verified')
     return result.metrics?.exact_response?'八项指标数值匹配':'相对初图通过';
   return familyStates[result.status];
+}
+function responseComparison(m){
+  const figure=familyNode('figure',undefined,'scalarFigure');
+  figure.append(familyNode('figcaption',scopeLabels[m.scope]+' · 23 频声压响应'));
+  const canvas=familyNode('canvas',undefined,'scalarCurve');
+  canvas.width=680;canvas.height=315;
+  canvas.setAttribute('role','img');canvas.setAttribute('aria-label','初图与候选的声压响应曲线，横轴 MHz，纵轴 Pa');
+  figure.append(canvas);
+  const g=canvas.getContext('2d'),freq=m.frequency_MHz;
+  const top=Math.max(1,...m.initial_curve_Pa,...m.curve_Pa),x0=83,x1=648,y0=245,y1=47;
+  const x=f=>x0+(f-freq[0])/(freq.at(-1)-freq[0])*(x1-x0);
+  const y=v=>y0-v/top*(y0-y1);
+  const teal='#146b65',gray='#707d86';
+  g.font='21px sans-serif';g.fillStyle='#395458';g.fillText('Pa',12,27);
+  g.textAlign='right';
+  for(let i=0;i<=4;i++){
+    const v=top*i/4;
+    g.fillText(Number(v.toPrecision(3)).toString(),x0-8,y(v)+7);
+    g.strokeStyle='#d0dbd9';g.lineWidth=1;g.beginPath();g.moveTo(x0,y(v));g.lineTo(x1,y(v));g.stroke();
+  }
+  g.textAlign='center';
+  for(const f of [freq[0],4,7,10,freq.at(-1)])g.fillText(String(f),x(f),y0+27);
+  g.fillText('频率 (MHz)',(x0+x1)/2,301);
+  function series(vals,color,dash){
+    g.strokeStyle=color;g.lineWidth=3;g.setLineDash(dash);g.beginPath();
+    vals.forEach((v,i)=>i?g.lineTo(x(freq[i]),y(v)):g.moveTo(x(freq[i]),y(v)));g.stroke();
+    g.setLineDash([]);
+  }
+  series(m.initial_curve_Pa,gray,[9,6]);series(m.curve_Pa,teal,[]);
+  const r=m.response;
+  if(Number.isFinite(r.peak_MHz)){
+    const points=m.metric==='peak_Pa'?[[r.peak_MHz,r.peak_Pa]]:[[r.left_MHz,r.threshold_Pa],[r.right_MHz,r.threshold_Pa]];
+    for(const [f,v] of points)if(Number.isFinite(f)){
+      g.beginPath();g.fillStyle='#ad601f';g.arc(x(f),y(v),5,0,2*Math.PI);g.fill();
+    }
+  }
+  const key=familyNode('div',undefined,'curveLegend');
+  key.append(familyNode('span','初图','initialKey'),familyNode('span','候选','candidateKey'));
+  if(Number.isFinite(r.peak_MHz)&&(m.metric==='peak_Pa'||Number.isFinite(r.left_MHz)||Number.isFinite(r.right_MHz)))
+    key.append(familyNode('span',m.metric==='peak_Pa'?'候选主峰':'候选带边','workKey'));
+  figure.append(key);
+  return figure;
 }
 function addBandChecks(details,m){
   const table=familyNode('table',undefined,'checkTable');
@@ -351,6 +460,7 @@ function paintFamilyCard(run,family,result){
   card.replaceChildren(familyNode('h3',familyNames[family]),familyNode('p',resultLabel(run.mode,result),'familyState '+result.status));
   if(result.reason)card.append(familyNode('p',result.reason,'familyReason'));
   if(!result.mask)return;
+  if(run.mode==='scalar')card.append(responseComparison(result.metrics));
   card.append(maskCanvas(result.mask,familyNames[family]));
   const rows=familyMetricRows(run.mode,result.metrics);
   const dl=familyNode('dl',undefined,'familyMetrics');
@@ -379,16 +489,25 @@ function paintFamilyCard(run,family,result){
     if(familyRun!==run||run.stale||designing)return;
     if(busy||pending){note('当前开关图正在重算，请稍后再应用',true);return}
     M=result.mask.map(row=>row.slice());
+    if(run.mode==='scalar')$('restoreRunMask').disabled=false;
     if(goal&&run.baseline)baseline=run.baseline.slice();
     invalidate(true);
     run.appliedRev=rev;run.appliedLabel='已应用'+familyNames[family]+'（'+resultLabel(run.mode,result)+'）';
     for(const button of $('familyCards').querySelectorAll('.familyApply'))button.textContent='应用并复算';
     apply.textContent='已应用到当前图';
-    $('familyProgress').textContent='当前图已切换至'+familyNames[family]+'方案（'+familyStates[result.status]+'），上方正在复算整面声场。其他结果仍以本轮共同初图为参照。';
+    $('familyProgress').textContent='当前图已切换至'+familyNames[family]+'方案（'+resultLabel(run.mode,result)+'），上方正在复算整面声场。其他结果仍以本轮共同初图为参照。';
   };
-  const save=familyNode('button','导出 CSV');save.type='button';
+  const save=familyNode('button','导出排布 CSV');save.type='button';
   save.onclick=()=>csv('PMUT_'+run.mode+'_'+family+'_'+result.status+'.csv',result.mask.map(row=>row.join(',')).join('\n'));
-  actions.append(apply,save);card.append(actions);
+  actions.append(apply,save);
+  if(run.mode==='scalar'){
+    const download=familyNode('button','导出响应曲线','curveDownload');
+    download.type='button';
+    download.onclick=()=>csv('PMUT_'+m.scope+'_'+m.metric+'_'+family+'_response.csv',
+      ['MHz,initial_Pa,candidate_Pa',...m.frequency_MHz.map((f,i)=>[f,m.initial_curve_Pa[i],m.curve_Pa[i]].join(','))].join('\n'));
+    actions.append(download);
+  }
+  card.append(actions);
 }
 
 function validateFamilyResult(family,result){
@@ -399,12 +518,19 @@ function validateFamilyResult(family,result){
     row=>!Array.isArray(row)||row.length!==50||row.some(x=>x!==0&&x!==1)))throw Error('结果矩阵需为 50×50 个 0 或 1');
   const active=result.mask.flat().reduce((n,v)=>n+v,0);
   if(result.metrics?.active!=null&&result.metrics.active!==active)throw Error('返回阵元数与结果矩阵不一致');
+  if(familyRun?.mode==='scalar'){
+    const m=result.metrics;
+    if(!m||!(m.metric in scalarMetrics)||!m.response||
+       ![m.initial_curve_Pa,m.curve_Pa,m.frequency_MHz].every(row=>Array.isArray(row)&&row.length===cfg.frequency.length&&row.every(Number.isFinite))||
+       !m.frequency_MHz.every((f,i)=>f===cfg.frequency[i]))throw Error('未收到完整的初图、候选和频率数据');
+  }
   return {...result,metrics:{...result.metrics,active}};
 }
 
 async function readProtectedBatch(mask,target,onResult,options={}){
-  const response=await fetch(options.mode==='peak_band'?'/peak-families':'/protected-families',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({mask,target,...options})});
+  const route={scalar:'/scalar-families',peak_band:'/peak-families',protected:'/protected-families'}[options.mode||'protected'];
+  const response=await fetch(route,{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({mask,...(target?{target}:{}),...options})});
   if(response.status===404)return false;
   if(!response.ok){
     const message=await response.json();
@@ -431,32 +557,92 @@ async function readProtectedBatch(mask,target,onResult,options={}){
   return true;
 }
 
+function scalarOptions(){
+  const direction=$('scalarDirection').value;
+  const options={metric:$('scalarMetric').value,direction};
+  if(direction==='match'){
+    for(const [key,id,name] of [['value','scalarValue','目标值'],['tolerance','scalarTolerance','允许偏差']]){
+      const number=$(id).valueAsNumber;
+      if(!Number.isFinite(number)||number<0)throw Error('请输入大于或等于零的'+name);
+      options[key]=number;
+    }
+  }
+  return options;
+}
+
+function rankScalar(run,results,options){
+  const maximize=options.direction==='maximize',metric=options.metric;
+  const score=v=>Number.isFinite(v)?(maximize?-v:Math.abs(v-options.value)):Infinity;
+  const ranked=results.filter(r=>r.mask).sort((a,b)=>score(a.metrics.value)-score(b.metrics.value));
+  // Move valid cards into goal order. Errors and unavailable families follow them.
+  $('familyCards').prepend(...ranked.map(r=>run.cards.get(r.family)));
+  const best=ranked[0],base=run.initialValue;
+  const baseText='共同初图 '+scalarValueLabel(base,metric)+'。';
+  let text=baseText;
+  if(!best||!Number.isFinite(best.metrics.value)){
+    text+=ranked.length?'本轮候选均未在采样范围内闭合带宽。':'本轮未得到可比较的候选。';
+  }else{
+    const m=best.metrics,card=run.cards.get(best.family);
+    card.classList.add('bestScalar');
+    const bestText=familyNames[best.family]+' '+scalarValueLabel(m.value,metric);
+    text+=(maximize?'本轮指标最高的候选为':'本轮最接近指定值的候选为')+bestText+'。';
+    if(maximize&&Number.isFinite(base)&&!m.improved)text+='没有候选超过初图，追求最大值时建议保留初图。';
+    else if(!maximize&&score(base)<=score(m.value))text+='初图距目标的偏差也在本轮最小值以内，可保留初图。';
+  }
+  $('scalarBest').textContent=text;
+  $('scalarRanking').hidden=false;
+}
+$('restoreRunMask').onclick=()=>{
+  const run=familyRun;
+  if(run?.mode!=='scalar'||run.stale||designing||busy||pending)return;
+  M=run.initialMask.map(row=>row.slice());
+  invalidate(true);
+  run.appliedRev=rev;run.appliedLabel='已恢复本轮共同初图';
+  $('familyProgress').textContent='正在复算本轮初图。';
+  $('restoreRunMask').disabled=true;
+  $('familyCards').querySelectorAll('.familyApply').forEach(button=>button.textContent='应用并复算');
+};
+
 async function runFamilyDesign(mode){
   fresh();
   if(busy||pending||designing)throw Error('请等待当前计算完成');
-  const protectedMode=mode==='protected'||mode==='peak_band';
-  if(protectedMode&&!goal)throw Error('请先导入或设置整面目标');
-  const goals=protectedMode?[]:targets($('target').value);
-  if(!protectedMode&&!goals.length)throw Error('请填写或导入测点目标');
-  const selected=$(protectedMode?'familyFull':'familyPoint').value;
+  const referenceMode=mode==='protected'||mode==='peak_band',scalar=mode==='scalar';
+  const fixedDesign=referenceMode||scalar;
+  if(referenceMode&&!goal)throw Error('请先导入或设置整面目标');
+  const goals=fixedDesign?[]:targets($('target').value);
+  if(!fixedDesign&&!goals.length)throw Error('请填写或导入测点目标');
+  const selected=$(fixedDesign?'familyFull':'familyPoint').value;
   const families=selected==='all'?Object.keys(familyNames):[selected];
   const mask=M.map(row=>row.slice()), active=mask.flat().reduce((n,v)=>n+v,0);
-  const body={mode,mask,goals,fixed:protectedMode||$('fixed').checked,target:protectedMode?goal.encoded:null};
-  const options=mode==='peak_band'?{mode,scope:$('spectrum').value,point:pt.slice()}:{mode};
+  const body={mode,mask,fixed:fixedDesign||$('fixed').checked};
+  if(referenceMode)body.target=goal.encoded;
+  if(!fixedDesign)body.goals=goals;
+  const options={mode};
+  if(scalar||mode==='peak_band')Object.assign(options,{scope:$('inverseScope').value,point:pt.slice()});
+  if(scalar)Object.assign(options,scalarOptions());
   Object.assign(body,options);
-  if(protectedMode){comparisonStart={field:P,region:currentSummary};baseline=currentMetrics.slice()}
+  if(referenceMode){comparisonStart={field:P,region:currentSummary};baseline=currentMetrics.slice()}
   const run={generation:++familyGeneration,mode,stale:false,running:true,cards:new Map(),baseline:currentMetrics?.slice()};
+  if(scalar){run.initialMask=mask;run.initialValue=bandFeatures(getSpectrum())[options.metric];}
   familyRun=run;designing=busy=true;pen=null;
-  const locked=['importM','importRef','importT','target','fixed','weight','familyPoint','familyFull','planeMode','spectrum','inverseScope','solve','restore','clear','calc','capture','example','fillF','fillC'];
-  const status=$(protectedMode?'runNote':'score');
+  const locked=['importM','importRef','importT','target','fixed','weight','familyPoint','familyFull','planeMode','spectrum','inverseScope','scalarMetric','scalarDirection','scalarValue','scalarTolerance','presetCenterPeak','presetRoiBand','solve','restore','clear','calc','capture','example','fillF','fillC'];
+  const status=$(fixedDesign?'runNote':'score');
   const results=[];
   try{
     locked.forEach(id=>$(id).disabled=true);renderStudy();
     $('runNote').textContent=$('score').textContent='';
     $('familyResults').hidden=false;
+    $('familyCards').classList.toggle('scalarCards',scalar);
+    $('scalarRanking').hidden=true;$('restoreRunMask').disabled=true;
     document.querySelectorAll('.resultsLink').forEach(link=>link.hidden=false);
-    $('familyContext').textContent=familyModes[mode]+(mode==='peak_band'?' · '+scopeLabel():'')+' · 共同初图通电 '+active+' / 2500 · '+(body.fixed?'固定通电数':'允许调整通电数')+
-      (protectedMode?'':' · '+goals.length+' 项目标')+'。深绿格为通电位置。';
+    let description=familyModes[mode];
+    if(scalar||mode==='peak_band')description+=' · '+scopeLabel();
+    if(scalar){
+      const [label,unit]=scalarMetrics[options.metric];
+      description+=' · '+(options.direction==='maximize'?'尽量增大'+label:label+'目标 '+options.value+unit+'，允许偏差 ±'+options.tolerance+(options.metric==='relative_bandwidth_pct'?' 个百分点':unit));
+    }
+    $('familyContext').textContent=description+' · 共同初图通电 '+active+' / 2500 · '+(body.fixed?'固定通电数':'允许调整通电数')+
+      (fixedDesign?'':' · '+goals.length+' 项目标')+'。深绿格为通电位置。';
     $('familyCards').replaceChildren();
     for(const family of families){
       const card=familyNode('article',undefined,'familyCard');card.dataset.family=family;
@@ -469,13 +655,13 @@ async function runFamilyDesign(mode){
       paintFamilyCard(run,family,result);
     }
     let batched=false;
-    if(protectedMode && selected==='all' && typeof TextDecoderStream!=='undefined'){
+    if(fixedDesign && selected==='all' && typeof TextDecoderStream!=='undefined'){
       const remaining=new Set(families);
       let failure='服务响应提前结束，请重试尚未返回的类别。';
       try{
-        status.textContent=$('familyProgress').textContent='正在计算五类整面排布…';
+        status.textContent=$('familyProgress').textContent='正在计算五类排布…';
         for(const card of run.cards.values())card.querySelector('.queue').textContent='正在搜索并复算…';
-        batched=await readProtectedBatch(mask,goal.encoded,result=>{
+        batched=await readProtectedBatch(mask,body.target,result=>{
           const family=result.family;
           if(!remaining.delete(family))throw Error('服务重复返回类别或类别未知。');
           try{
@@ -505,7 +691,10 @@ async function runFamilyDesign(mode){
         counts.set(label,(counts.get(label)||0)+1);
       }
       const summary=Array.from(counts,([label,n])=>label+' '+n+' 类').join(' · ');
-      status.textContent=$('familyProgress').textContent='完成 '+results.length+' / '+families.length+' 类。'+summary;
+      if(scalar)rankScalar(run,results,options);
+      let conclusion='完成 '+results.length+' / '+families.length+' 类。'+summary;
+      if(referenceMode&&results.length&&results.every(r=>r.status==='partial'))conclusion+='。本轮没有排布同时满足全部保护项。若仅关心中心峰值或带宽，可选择单指标逆向。';
+      status.textContent=$('familyProgress').textContent=conclusion;
       note('搜索结束，查看结果后可应用或导出。');
     }
   }finally{
@@ -516,4 +705,7 @@ async function runFamilyDesign(mode){
 }
 
 action('solve',()=>runFamilyDesign($('weight').selectedIndex?'weighted':'absolute'));
-action('protect',()=>runFamilyDesign($('planeMode').value));
+action('protect',async()=>{
+  try{await runFamilyDesign($('planeMode').value)}
+  catch(error){$('runNote').textContent=error.message;throw error}
+});

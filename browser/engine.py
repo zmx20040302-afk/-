@@ -30,16 +30,16 @@ def dispatch(path, payload):
         result = dict(mask=mask.astype(int).tolist(), metrics=None,
                       field=encode(pressure), velocity=encode(velocity))
     elif path == "/family-design":
-        from family_design import design_family
+        from family_design import design_family, scalar_options
         mode = body["mode"]
         target = None
         if mode in ("protected","peak_band"):
             target = np.frombuffer(base64.b64decode(body["target"], validate=True),
                                    dtype="<c16").reshape(len(FREQ), 50, 50)
+        options = scalar_options(body) if mode == "scalar" else dict(scope=body.get("scope","plane"), point=body.get("point"))
         result = design_family(mask_array(body["mask"]), body["family"], mode,
-                               fixed=True if mode in ("protected","peak_band") else body["fixed"],
-                               goals=body.get("goals"), target=target,
-                               scope=body.get("scope","plane"), point=body.get("point"))
+                               fixed=True if mode in ("protected","peak_band","scalar") else body["fixed"],
+                               goals=body.get("goals"), target=target, **options)
     else:
         raise ValueError("未知工作台操作")
     return json.dumps(result, ensure_ascii=False, allow_nan=False)

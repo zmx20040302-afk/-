@@ -39,6 +39,7 @@
     "S237/protected_direct.py",
     "S237/protected_linear.py",
     "S237/protected_swaps.py",
+    "S237/scalar_design.py",
     "S237/sparse_cluster_positions.npz",
     "S237/sparse_cluster_seeds.py",
     "S237/weighted.py",

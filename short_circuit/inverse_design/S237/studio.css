@@ -22,3 +22,20 @@ html{scroll-behavior:smooth}body{background:#f2f5f5;color:#19353b}main{max-width
 .familyCard details{overflow-x:auto}
 .checkTable{font-size:12px}
 .checkTable th,.checkTable td{padding:5px 3px}
+#inverse [hidden],#scalarRanking[hidden]{display:none}
+#referenceControls,#scalarPresets,.inverseFields{margin:12px 0}
+#scalarPresets span{color:#486569}
+#scalarPresets button[aria-pressed=true]{background:#dfefea;border-color:#29716b;color:#184e49}
+#scalarFields label{display:inline-flex;gap:6px;align-items:center}
+#scalarMatch input{width:7em;border:1px solid #8eaaa4;border-radius:6px;padding:5px 8px;color:inherit}
+#scalarBaseline{color:#244d4a;font-variant-numeric:tabular-nums}
+#familyCards.scalarCards{grid-template-columns:repeat(auto-fit,minmax(min(100%,350px),1fr))}
+#familyCards.scalarCards .familyCard:only-child{width:min(100%,620px)}
+.scalarFigure{margin:10px 0 14px}.scalarFigure figcaption{font-size:14px;font-weight:600}
+.curveLegend{display:flex;gap:12px;flex-wrap:wrap;font-size:13px}
+.curveLegend span{display:inline-flex;align-items:center;gap:5px}
+.curveLegend .initialKey:before,.curveLegend .candidateKey:before{content:'';width:19px;border-top:2px dashed #707d86}
+.curveLegend .candidateKey:before{border-top:3px solid #146b65}
+.curveLegend .workKey:before{content:'';width:7px;height:7px;border-radius:50%;background:#ad601f}
+#scalarRanking{border-left:3px solid #29716b;padding:0 12px;margin:12px 0 18px}
+.scalarCards .bestScalar{border:2px solid #3a7e75}
