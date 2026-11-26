@@ -1,0 +1,8 @@
+# These source bytes form part of the saved acoustic exclusion certificate.
+short_circuit/inverse_design/S217/model.py -text
+short_circuit/inverse_design/S232/common.py -text
+short_circuit/inverse_design/S281/geometry.py -text
+short_circuit/inverse_design/S284/classifier.py -text
+short_circuit/inverse_design/S284/stable_classifier.py -text
+*.npz binary
+*.npy binary

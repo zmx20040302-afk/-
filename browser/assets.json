@@ -1,0 +1,58 @@
+{
+  "forward": [
+    "S217/model.py",
+    "S217/kernels.npz",
+    "S217/start.csv"
+  ],
+  "inverse": [
+    "S231/targets.json",
+    "S232/common.py",
+    "S281/geometry.py",
+    "S237/cluster_bound.py",
+    {
+      "file": "S237/cluster_continuation.py",
+      "source": "generated/cluster_continuation.py"
+    },
+    "S237/cluster_geometry.py",
+    "S237/cluster_low_seeds.npz",
+    "S237/cluster_low_seeds.py",
+    "S237/cluster_micro.py",
+    "S237/cluster_mutations.npz",
+    "S237/cluster_mutations.py",
+    "S237/cluster_pool.npz",
+    "S237/cluster_projection.py",
+    {
+      "file": "S237/cluster_repair.py",
+      "source": "generated/cluster_repair.py"
+    },
+    "S237/cluster_search.py",
+    "S237/cluster_sparse.py",
+    "S237/cluster_subset.py",
+    "S237/cluster_transfer.npz",
+    "S237/cluster_transfer.py",
+    "S237/family_design.py",
+    "S237/field_seed.py",
+    "S237/geometry_operator.npz",
+    "S237/geometry_screen.py",
+    "S237/point_swaps.py",
+    "S237/protected_direct.py",
+    "S237/protected_linear.py",
+    "S237/protected_swaps.py",
+    "S237/sparse_cluster_positions.npz",
+    "S237/sparse_cluster_seeds.py",
+    "S237/weighted.py",
+    "S284/bank.py",
+    "S284/classifier.py",
+    "S284/model.npz",
+    "S284/stable_classifier.py",
+    {
+      "file": "S237/browser_executor.py",
+      "source": "executor.py"
+    }
+  ],
+  "example": [
+    "S233/S005525_20261123_base.csv",
+    "S233/S005525_ref.npy",
+    "S234/S005525_20261123_visit38.csv"
+  ]
+}
