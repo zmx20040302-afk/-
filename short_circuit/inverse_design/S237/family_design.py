@@ -209,18 +209,29 @@ def proposals(mask, gradient):
 
 
 def scalar_options(body):
-    keys = ("scope", "point", "metric", "direction", "value", "tolerance")
-    return {key: body[key] for key in keys if key in body}
+    keys = ("scope", "point", "metric", "direction", "value", "tolerance", "count_mode", "count")
+    options = {key: body[key] for key in keys if key in body}
+    if body.get("value") is not None:
+        options.setdefault("direction", "match")
+    if body.get("count") is not None:
+        options.setdefault("count_mode", "specified")
+    elif body.get("mask") is None:
+        options.setdefault("count_mode", "auto")
+    return options
 
 
 def design_family(mask, family, mode, *, goals=None, fixed=False, target=None, parallel=False,
-                  scope=None, point=None, metric="peak_Pa", direction="maximize", value=None, tolerance=None):
+                  scope=None, point=None, metric="peak_Pa", direction="maximize", value=None, tolerance=None,
+                  count_mode="current", count=None):
     if family not in FAMILIES or mode not in ("absolute", "weighted", "protected", "peak_band", "scalar") or type(fixed) is not bool:
         raise ValueError("无效的阵列类别、目标模式或通电数约束。")
     if mode == "scalar":
         from scalar_design import design_scalar
+        if mask is None and count_mode == "current":
+            raise ValueError("沿用上图通电数需要开关图。也可选择自动或指定通电数。")
         return design_scalar(mask, family, scope="center" if scope is None else scope, point=point,
-                             metric=metric, direction=direction, value=value, tolerance=tolerance)
+                             metric=metric, direction=direction, value=value, tolerance=tolerance,
+                             count_mode=count_mode, count=count)
     if mode == "peak_band":
         from peak_band import design_peak_band
         return design_peak_band(mask, family, target, scope="plane" if scope is None else scope, point=point)

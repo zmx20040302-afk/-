@@ -201,7 +201,8 @@ function renderStudy(){
   const features=bandFeatures(getSpectrum());
   if(scalar){
     const metric=$('scalarMetric').value;
-    $('scalarBaseline').textContent='当前图 · '+scopeLabel()+' · '+scalarMetrics[metric][0]+' '+scalarValueLabel(features[metric],metric);
+    const active=M.reduce((n,row)=>n+row.reduce((sum,v)=>sum+v,0),0);
+    $('scalarBaseline').textContent='上方开关图 · 通电 '+active+' 个 · '+scopeLabel()+' · '+scalarMetrics[metric][0]+' '+scalarValueLabel(features[metric],metric);
   }
   displaySlice=selectSlice(features);
   const slice=displaySlice;
@@ -263,16 +264,19 @@ function modeChanged(){
   const metric=$('scalarMetric').value,scope=$('inverseScope').value,direction=$('scalarDirection').value;
   $('scopeLabel').hidden=!(peak||scalar);
   $('referenceControls').hidden=scalar;
-  for(const id of ['scalarFields','scalarPresets','scalarBaseline'])$(id).hidden=!scalar;
+  for(const id of ['scalarFields','scalarPresets','scalarBaseline','scalarChannels'])$(id).hidden=!scalar;
   $('scalarMatch').hidden=direction!=='match';
+  const countMode=$('scalarCountMode').value;
+  $('scalarCountField').hidden=countMode!=='specified';
+  $('countHelp').textContent={auto:'自动比较多种通电数和排布。可直接使用本页，无需准备开关图。',specified:'每个候选均采用填写的通电数，上图仅供对照。',current:'每个候选的通电数与上方开关图相同。'}[countMode];
   $('scalarUnit').textContent=scalarMetrics[metric][1].trim();
   $('scalarToleranceUnit').textContent=metric==='relative_bandwidth_pct'?'个百分点':scalarMetrics[metric][1].trim();
   $('presetCenterPeak').setAttribute('aria-pressed',String(scope==='center'&&metric==='peak_Pa'&&direction==='maximize'));
   $('presetRoiBand').setAttribute('aria-pressed',String(scope==='roi'&&metric==='bandwidth_MHz'&&direction==='maximize'));
-  $('protect').textContent=scalar?'固定通电数，开始求解':peak?'固定通电数，匹配峰值与带边':'固定通电数，优化 12.50 MHz';
+  $('protect').textContent=scalar?'开始求解':peak?'固定通电数，匹配峰值与带边':'固定通电数，优化 12.50 MHz';
   if(scalar){
     const location={center:'在几何中心 (0, 0) 插值复声压后取幅值。',roi:'逐频计算中心 1 mm × 1 mm 内 25 个测点的平均幅值，再从这条曲线取指标。',plane:'逐频计算整面 2,500 个测点的平均幅值。',point:'点击上方声场可选择测点。'}[scope];
-    $('modeHelp').textContent=location+(metric==='peak_Pa'?'峰值取 23 个频点中的最大幅值。':'带宽取主峰两侧 −6 dB 交点之间的频率跨度。')+(metric==='relative_bandwidth_pct'?'相对带宽为该跨度除以两带边的平均频率。':'');
+    $('modeHelp').textContent=location+(metric==='peak_Pa'?'峰值取 23 个频点中的最大幅值。':'带宽取主峰两侧 −6 dB 交点之间的频率跨度。')+(metric==='relative_bandwidth_pct'?'相对带宽为该跨度除以两带边的平均频率。':'')+(direction==='match'?'只填目标值时，按与目标的绝对误差排序。填写允许偏差后可判断是否在容差内。':'');
     return;
   }
   $('modeHelp').textContent=peak?
@@ -281,13 +285,12 @@ function modeChanged(){
 }
 $('planeMode').onchange=()=>{const scope=rememberedScopes[$('planeMode').value];$('spectrum').value=$('inverseScope').value=scope;modeChanged();resetScore();if(cfg)draw()};
 function changeScalarMetric(){
-  $('scalarValue').value='';$('scalarTolerance').value='0';
+  $('scalarValue').value='';$('scalarTolerance').value='';
   modeChanged();resetScore();if(cfg)draw();
 }
-$('scalarTolerance').value='0';
 $('scalarMetric').onchange=changeScalarMetric;
-$('scalarDirection').onchange=()=>{modeChanged();resetScore();if(cfg)draw()};
-$('scalarValue').oninput=$('scalarTolerance').oninput=()=>resetScore();
+$('scalarDirection').onchange=$('scalarCountMode').onchange=()=>{modeChanged();resetScore();if(cfg)draw()};
+$('scalarCount').oninput=$('scalarValue').oninput=$('scalarTolerance').oninput=()=>resetScore();
 for(const [id,scope,metric] of [['presetCenterPeak','center','peak_Pa'],['presetRoiBand','roi','bandwidth_MHz']]){
   $(id).onclick=()=>{
     rememberedScopes.scalar=scope;
@@ -356,8 +359,10 @@ function familyMetricRows(mode,m){
     const [label,unit]=scalarMetrics[m.metric];
     rows.push([label+' · 初图 → 候选',scalarValueLabel(m.initial_value,m.metric)+' → '+scalarValueLabel(m.value,m.metric)]);
     if(m.direction==='match'){
-      const delta=Number.isFinite(m.value)?Math.max(0,Math.abs(m.value-m.target_value)-m.tolerance):null;
-      rows.push(['距目标容差区间',fmt(delta,m.metric==='relative_bandwidth_pct'?' 个百分点':unit)]);
+      const unitDelta=m.metric==='relative_bandwidth_pct'?' 个百分点':unit;
+      const error=Number.isFinite(m.value)?Math.abs(m.value-m.target_value):null;
+      rows.push(['与目标的绝对误差',fmt(error,unitDelta)]);
+      if(Number.isFinite(m.tolerance))rows.push(['允许偏差','±'+fmt(m.tolerance,unitDelta)]);
     }
     const r=m.response;
     rows.push(['候选峰值',fmt(r.peak_Pa,' Pa')+' @ '+fmt(r.peak_MHz,' MHz')],
@@ -388,7 +393,7 @@ function resultLabel(mode,result){
   if(mode==='scalar'&&result.mask){
     const m=result.metrics;
     if(!Number.isFinite(m.value))return '带边未闭合';
-    if(m.direction==='match')return m.met_target?'在目标容差内':'超出目标容差';
+    if(m.direction==='match')return m.tolerance==null?'按误差比较':m.met_target?'在目标容差内':'超出目标容差';
     if(!Number.isFinite(m.initial_value))return '获得完整带宽';
     if(m.improved)return '较初图增加';
     const epsilon=1e-9*Math.max(1,Math.abs(m.value),Math.abs(m.initial_value));
@@ -457,7 +462,8 @@ function addBandChecks(details,m){
 
 function paintFamilyCard(run,family,result){
   const card=run.cards.get(family);
-  card.replaceChildren(familyNode('h3',familyNames[family]),familyNode('p',resultLabel(run.mode,result),'familyState '+result.status));
+  const openMatch=run.mode==='scalar'&&result.mask&&result.metrics.direction==='match'&&result.metrics.tolerance==null;
+  card.replaceChildren(familyNode('h3',familyNames[family]),familyNode('p',resultLabel(run.mode,result),'familyState '+(openMatch?'comparison':result.status)));
   if(result.reason)card.append(familyNode('p',result.reason,'familyReason'));
   if(!result.mask)return;
   if(run.mode==='scalar')card.append(responseComparison(result.metrics));
@@ -469,6 +475,8 @@ function paintFamilyCard(run,family,result){
   const details=familyNode('details');
   details.append(familyNode('summary',run.mode==='peak_band'?'逐项验收与排布':'放大查看开关图'),maskCanvas(result.mask,familyNames[family]));
   const m=result.metrics;
+  if(run.mode==='scalar'&&m.count_mode==='auto'&&m.tested_counts?.length)
+    details.append(familyNode('p','原方程复算过的通电数（个） · '+m.tested_counts.join('、'),'info'));
   if(run.mode==='peak_band')addBandChecks(details,m);
   if(run.mode==='protected'&&[m.limits_before,m.limits_after,m.limits_ok].every(a=>Array.isArray(a)&&a.length===6)){
     const limits=familyNode('dl',undefined,'familyMetrics');
@@ -523,6 +531,11 @@ function validateFamilyResult(family,result){
     if(!m||!(m.metric in scalarMetrics)||!m.response||
        ![m.initial_curve_Pa,m.curve_Pa,m.frequency_MHz].every(row=>Array.isArray(row)&&row.length===cfg.frequency.length&&row.every(Number.isFinite))||
        !m.frequency_MHz.every((f,i)=>f===cfg.frequency[i]))throw Error('未收到完整的初图、候选和频率数据');
+    const {count_mode,count}=familyRun.options;
+    if(m.count_mode!==count_mode||m.initial_active!==familyRun.initialActive||
+      (count_mode==='specified'&&(active!==count||m.requested_count!==count))||
+      (count_mode==='current'&&active!==familyRun.initialActive))
+      throw Error('结果未按本轮选定的通电数求解');
   }
   return {...result,metrics:{...result.metrics,active}};
 }
@@ -557,11 +570,20 @@ async function readProtectedBatch(mask,target,onResult,options={}){
   return true;
 }
 
-function scalarOptions(){
+function scalarOptions(active){
   const direction=$('scalarDirection').value;
-  const options={metric:$('scalarMetric').value,direction};
+  const countMode=$('scalarCountMode').value;
+  const options={metric:$('scalarMetric').value,direction,count_mode:countMode};
+  if(countMode==='specified'){
+    const count=$('scalarCount').valueAsNumber;
+    if(!Number.isInteger(count)||count<6||count>2494)throw Error('请输入 6–2494 之间的整数作为通电阵元数。');
+    options.count=count;
+  }else if(countMode==='current'&&(active<6||active>2494)){
+    throw Error('上图有 '+active+' 个通电阵元，沿用上图数量要求 6–2494 个。请选择自动选择或指定数量。');
+  }
   if(direction==='match'){
     for(const [key,id,name] of [['value','scalarValue','目标值'],['tolerance','scalarTolerance','允许偏差']]){
+      if(key==='tolerance'&&$(id).value===''&&!$(id).validity.badInput)continue;
       const number=$(id).valueAsNumber;
       if(!Number.isFinite(number)||number<0)throw Error('请输入大于或等于零的'+name);
       options[key]=number;
@@ -577,17 +599,20 @@ function rankScalar(run,results,options){
   // Move valid cards into goal order. Errors and unavailable families follow them.
   $('familyCards').prepend(...ranked.map(r=>run.cards.get(r.family)));
   const best=ranked[0],base=run.initialValue;
-  const baseText='共同初图 '+scalarValueLabel(base,metric)+'。';
+  const baseText='上图对照（'+run.initialActive+' 个通电） '+scalarValueLabel(base,metric)+'。';
   let text=baseText;
   if(!best||!Number.isFinite(best.metrics.value)){
     text+=ranked.length?'本轮候选均未在采样范围内闭合带宽。':'本轮未得到可比较的候选。';
   }else{
     const m=best.metrics,card=run.cards.get(best.family);
     card.classList.add('bestScalar');
-    const bestText=familyNames[best.family]+' '+scalarValueLabel(m.value,metric);
+    const bestText=familyNames[best.family]+'（'+m.active+' 个通电），'+scalarValueLabel(m.value,metric);
     text+=(maximize?'本轮指标最高的候选为':'本轮最接近指定值的候选为')+bestText+'。';
-    if(maximize&&Number.isFinite(base)&&!m.improved)text+='没有候选超过初图，追求最大值时建议保留初图。';
-    else if(!maximize&&score(base)<=score(m.value))text+='初图距目标的偏差也在本轮最小值以内，可保留初图。';
+    if(!maximize)text+='与目标相差 '+fmt(score(m.value),metric==='relative_bandwidth_pct'?' 个百分点':scalarMetrics[metric][1])+'。';
+    if(run.initialActive>=6&&run.initialActive<=2494&&(options.count_mode!=='specified'||run.initialActive===options.count)){
+      if(maximize&&Number.isFinite(base)&&!m.improved)text+='没有候选超过初图，可保留初图作对照。';
+      else if(!maximize&&score(base)<=score(m.value))text+='初图距目标的偏差也在本轮最小值以内，可保留初图作对照。';
+    }
   }
   $('scalarBest').textContent=text;
   $('scalarRanking').hidden=false;
@@ -619,13 +644,16 @@ async function runFamilyDesign(mode){
   if(!fixedDesign)body.goals=goals;
   const options={mode};
   if(scalar||mode==='peak_band')Object.assign(options,{scope:$('inverseScope').value,point:pt.slice()});
-  if(scalar)Object.assign(options,scalarOptions());
+  if(scalar){
+    Object.assign(options,scalarOptions(active));
+    body.fixed=options.count_mode!=='auto';
+  }
   Object.assign(body,options);
   if(referenceMode){comparisonStart={field:P,region:currentSummary};baseline=currentMetrics.slice()}
   const run={generation:++familyGeneration,mode,stale:false,running:true,cards:new Map(),baseline:currentMetrics?.slice()};
-  if(scalar){run.initialMask=mask;run.initialValue=bandFeatures(getSpectrum())[options.metric];}
+  if(scalar){run.initialMask=mask;run.initialActive=active;run.options=options;run.initialValue=bandFeatures(getSpectrum())[options.metric];}
   familyRun=run;designing=busy=true;pen=null;
-  const locked=['importM','importRef','importT','target','fixed','weight','familyPoint','familyFull','planeMode','spectrum','inverseScope','scalarMetric','scalarDirection','scalarValue','scalarTolerance','presetCenterPeak','presetRoiBand','solve','restore','clear','calc','capture','example','fillF','fillC'];
+  const locked=['importM','importRef','importT','target','fixed','weight','familyPoint','familyFull','planeMode','spectrum','inverseScope','scalarMetric','scalarDirection','scalarValue','scalarTolerance','scalarCountMode','scalarCount','presetCenterPeak','presetRoiBand','solve','restore','clear','calc','capture','example','fillF','fillC'];
   const status=$(fixedDesign?'runNote':'score');
   const results=[];
   try{
@@ -637,11 +665,14 @@ async function runFamilyDesign(mode){
     document.querySelectorAll('.resultsLink').forEach(link=>link.hidden=false);
     let description=familyModes[mode];
     if(scalar||mode==='peak_band')description+=' · '+scopeLabel();
+    let countDescription=body.fixed?'固定通电数':'允许调整通电数';
     if(scalar){
       const [label,unit]=scalarMetrics[options.metric];
-      description+=' · '+(options.direction==='maximize'?'尽量增大'+label:label+'目标 '+options.value+unit+'，允许偏差 ±'+options.tolerance+(options.metric==='relative_bandwidth_pct'?' 个百分点':unit));
+      description+=' · '+(options.direction==='maximize'?'尽量增大'+label:label+'目标 '+options.value+unit);
+      if(options.direction==='match')description+=options.tolerance==null?'，按绝对误差排序':'，允许偏差 ±'+options.tolerance+(options.metric==='relative_bandwidth_pct'?' 个百分点':unit);
+      countDescription={auto:'自动选择通电数',current:'沿用上图 '+active+' 个通电阵元',specified:'指定 '+options.count+' 个通电阵元'}[options.count_mode];
     }
-    $('familyContext').textContent=description+' · 共同初图通电 '+active+' / 2500 · '+(body.fixed?'固定通电数':'允许调整通电数')+
+    $('familyContext').textContent=description+' · 上图对照 '+active+' / 2500 个通电 · '+countDescription+
       (fixedDesign?'':' · '+goals.length+' 项目标')+'。深绿格为通电位置。';
     $('familyCards').replaceChildren();
     for(const family of families){

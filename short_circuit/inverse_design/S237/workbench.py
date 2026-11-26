@@ -52,7 +52,7 @@ def protected(m,target):
     return dict(mask=m.astype(int).tolist(),field=encode(p),velocity=encode(u),trials=trials,changed=int((original!=m).sum()),accepted=accepted,elapsed=time.perf_counter()-start,before=float(base_high),after=float(best))
 class Handler(legacy.Handler):
     def do_GET(self):
-        if self.path=='/health':return self.reply(dict(app=APP, protected_batch=True, peak_band=True, scalar=True))
+        if self.path=='/health':return self.reply(dict(app=APP, protected_batch=True, peak_band=True, scalar=True, channel_counts=True))
         if self.path=='/docs/S321/report.html':
             return self.reply((HERE.parent/'S321'/'report.html').read_bytes(),
                               mime='text/html; charset=utf-8')
@@ -78,10 +78,12 @@ class Handler(legacy.Handler):
             body=json.loads(self.rfile.read(n))
             if not isinstance(body, dict):
                 raise ValueError('请求需要包含开关矩阵和目标')
-            m=mask_array(body['mask'])
             if self.path=='/scalar-families':
                 from family_design import scalar_options
+                m=mask_array(body['mask']) if body.get('mask') is not None else None
                 return self.stream_families(m,None,mode='scalar',**scalar_options(body))
+            scalar_request=self.path=='/family-design' and body.get('mode')=='scalar'
+            m=None if scalar_request and body.get('mask') is None else mask_array(body['mask'])
             if self.path=='/peak-families':
                 return self.stream_families(m,read_target(body['target']),mode='peak_band',
                                             scope=body.get('scope','plane'),point=body.get('point'))

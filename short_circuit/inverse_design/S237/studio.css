@@ -27,7 +27,8 @@ html{scroll-behavior:smooth}body{background:#f2f5f5;color:#19353b}main{max-width
 #scalarPresets span{color:#486569}
 #scalarPresets button[aria-pressed=true]{background:#dfefea;border-color:#29716b;color:#184e49}
 #scalarFields label{display:inline-flex;gap:6px;align-items:center}
-#scalarMatch input{width:7em;border:1px solid #8eaaa4;border-radius:6px;padding:5px 8px;color:inherit}
+#scalarMatch input,#scalarCount{width:7em;border:1px solid #8eaaa4;border-radius:6px;padding:5px 8px;color:inherit}
+#scalarChannels{margin:12px 0}
 #scalarBaseline{color:#244d4a;font-variant-numeric:tabular-nums}
 #familyCards.scalarCards{grid-template-columns:repeat(auto-fit,minmax(min(100%,350px),1fr))}
 #familyCards.scalarCards .familyCard:only-child{width:min(100%,620px)}

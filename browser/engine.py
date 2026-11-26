@@ -37,7 +37,8 @@ def dispatch(path, payload):
             target = np.frombuffer(base64.b64decode(body["target"], validate=True),
                                    dtype="<c16").reshape(len(FREQ), 50, 50)
         options = scalar_options(body) if mode == "scalar" else dict(scope=body.get("scope","plane"), point=body.get("point"))
-        result = design_family(mask_array(body["mask"]), body["family"], mode,
+        mask = None if mode == "scalar" and body.get("mask") is None else mask_array(body["mask"])
+        result = design_family(mask, body["family"], mode,
                                fixed=True if mode in ("protected","peak_band","scalar") else body["fixed"],
                                goals=body.get("goals"), target=target, **options)
     else:

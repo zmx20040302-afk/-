@@ -1,9 +1,9 @@
-"""Search fixed-count, uniquely classified layouts for a single spectral quantity."""
+"""Search uniquely classified layouts for one spectral quantity, with selectable drive count."""
 from itertools import islice
 from math import isfinite
 from time import perf_counter
 
-from family_design import (FB, FREQ, FAMILIES, G, N, certified, conv, make_mask,
+from family_design import (FB, FREQ, FAMILIES, G, N, certified, classifier, conv, make_mask,
                            mask_array, np, proposals, solve, starting_field)
 from peak_band import LEVEL, curve_receiver, features, spectrum
 
@@ -84,27 +84,35 @@ def _number(x):
 
 
 def design_scalar(mask, family, *, scope="center", point=None, metric="peak_Pa",
-                  direction="maximize", value=None, tolerance=None):
+                  direction="maximize", value=None, tolerance=None, count_mode="current", count=None):
     from cluster_transfer import field as estimate
     from geometry_screen import shape_candidates
     if metric not in ("peak_Pa","bandwidth_MHz","relative_bandwidth_pct") or family not in FAMILIES:
         raise ValueError("请选择有效的声学指标与排布类别。")
     if direction not in ("maximize","match"):
         raise ValueError("请选择尽可能提高或匹配给定值。")
-    if direction == "match" and not (_number(value) and _number(tolerance)):
-        raise ValueError("给定值和绝对容差须为有限非负数。")
+    if direction == "match" and not (_number(value) and (tolerance is None or _number(tolerance))):
+        raise ValueError("给定值须为有限非负数；允许偏差可留空或填有限非负数。")
+    if count_mode not in ("current","auto","specified"):
+        raise ValueError("请选择自动搜索通电数、指定通电数或沿用当前图。")
+    if count_mode == "specified" and (type(count) is not int or not 6 <= count <= 2494):
+        raise ValueError("指定通电数须为 6–2494 的整数。")
     target = float(value) if direction == "match" else None
-    tol = float(tolerance) if direction == "match" else None
+    tol = float(tolerance) if direction == "match" and tolerance is not None else None
     start = perf_counter()
-    source = mask_array(mask)
-    count = int(source.sum())
+    source = np.zeros((50,50)) if mask is None and count_mode != "current" else mask_array(mask)
+    initial_count = int(source.sum())
+    required_count = count if count_mode == "specified" else initial_count if count_mode == "current" else None
+    tested_counts, screened_counts = set(), set()
     meta = dict(metric=metric,direction=direction,target_value=target,tolerance=tol,
-                active=count,initial_active=count,scope=scope,point=point if scope=="point" else None,
+                count_mode=count_mode,requested_count=count if count_mode=="specified" else None,
+                active=None,initial_active=initial_count,scope=scope,point=point if scope=="point" else None,
                 frequency_MHz=FREQ.tolist())
     def unavailable(reason):
+        meta.update(tested_counts=sorted(tested_counts),screened_counts=sorted(screened_counts))
         return dict(family=family,status="unavailable",mask=None,metrics=meta,reason=reason)
-    if not 6 <= count <= 2494:
-        return unavailable(f"固定 {count} 路超出五类唯一分类的适用范围（6–2494 路）。")
+    if required_count is not None and not 6 <= required_count <= 2494:
+        return unavailable(f"上图 {required_count} 路超出五类唯一分类的适用范围（6–2494 路）。")
     ks = tuple(range(len(FREQ)))
     baseline_field,baseline_flow = starting_field(source,ks)
     initial_curve = spectrum(baseline_field,scope,point)
@@ -118,6 +126,7 @@ def design_scalar(mask, family, *, scope="center", point=None, metric="peak_Pa",
     deadline = perf_counter()+8.
     def record(m, waves):
         nonlocal best,trials
+        tested_counts.add(int(m.sum()))
         curve = spectrum(waves[0],scope,point)
         response = features(curve)
         rank = _rank(curve,response,metric,target)
@@ -126,41 +135,92 @@ def design_scalar(mask, family, *, scope="center", point=None, metric="peak_Pa",
             best = (rank,m.copy(),waves,curve,response)
 
     def matched():
-        return (target is not None and best is not None and best[0][0]==0
+        return (tol is not None and best is not None and best[0][0]==0
                 and best[0][1] <= tol)
 
-    def screen(candidates, keep):
+    def screen(candidates, keep, diverse=False):
         shortlist = []
         for m in candidates:
-            if perf_counter() >= deadline or matched():
+            if perf_counter() >= deadline or (matched() and not diverse):
                 break
             key = np.packbits(m.astype(bool)).tobytes()
-            if key in seen or int(m.sum())!=count:
+            k = int(m.sum())
+            if key in seen or (required_count is not None and k!=required_count):
                 continue
             seen.add(key)
             if not certified(m,family):
                 continue
+            screened_counts.add(k)
             if best is None:
                 record(m,starting_field(m,ks))
             else:
                 curve = spectrum(estimate(m),scope,point)
                 shortlist.append((_rank(curve,features(curve),metric,target),m))
-        for _,m in sorted(shortlist,key=lambda pair:pair[0])[:keep]:
-            if matched():
+        selected = 0
+        for _,m in sorted(shortlist,key=lambda pair:pair[0]):
+            if matched() and (not diverse or len(tested_counts)>=2):
                 break
+            if diverse and int(m.sum()) in tested_counts:
+                continue
             record(m,starting_field(m,ks))
-            if perf_counter() >= deadline:
+            selected += 1
+            if selected >= keep or perf_counter() >= deadline:
                 break
 
-    if certified(source,family):
+    if (6 <= initial_count <= 2494 and (required_count is None or initial_count==required_count)
+            and certified(source,family)):
         seen.add(np.packbits(source.astype(bool)).tobytes())
         record(source,(baseline_field,baseline_flow))
-    screen((make_mask(rng,count,family)[0] for _ in range(18)),2)
+    if required_count is None:
+        # Cover the calibrated count strata first, then localize both K and
+        # layout around the best native replay. All K share one time budget.
+        levels = [int(k) for k in classifier().levels]
+        def seeds():
+            for _ in range(3):
+                for k in levels:
+                    yield make_mask(rng,k,family)[0]
+        screen(seeds(),4,diverse=True)
+    else:
+        screen((make_mask(rng,required_count,family)[0] for _ in range(18)),2)
     for _ in range(4):
         if best is None or matched() or perf_counter() >= deadline:
             break
         prev,incumbent,waves,curve,response = best
         grad = _mask_gradient(incumbent,*waves,curve,response,metric,target,scope,point)
+        count_now = int(incumbent.sum())
+        if required_count is None:
+            # Propose new counts between the calibrated levels. Screen these
+            # acoustically before invoking potentially costly off-grid calibration.
+            down = np.flatnonzero(incumbent)
+            up = np.flatnonzero(incumbent==0)
+            down = down[np.argsort(-grad.flat[down])]
+            up = up[np.argsort(grad.flat[up])]
+            lower = max((k for k in levels if k<count_now),default=6)
+            upper = min((k for k in levels if k>count_now),default=2494)
+            next_counts = {(count_now+lower)//2,(count_now+upper+1)//2,count_now-1,count_now+1}
+            if metric=="peak_Pa" and target is not None and response[metric]>0:
+                estimated = np.clip(count_now*(target/response[metric]),6,2494)
+                next_counts.add(round(float(estimated)))
+            exploratory = []
+            for k in sorted(next_counts):
+                if k==count_now or not 6<=k<=2494 or perf_counter()>=deadline:
+                    continue
+                m = incumbent.copy()
+                if k>count_now:
+                    m.flat[up[:k-count_now]] = 1
+                else:
+                    m.flat[down[:count_now-k]] = 0
+                trial_curve = spectrum(estimate(m),scope,point)
+                exploratory.append((_rank(trial_curve,features(trial_curve),metric,target),m))
+            for _,m in sorted(exploratory,key=lambda row:row[0])[:2]:
+                if perf_counter()>=deadline or matched():
+                    break
+                token = np.packbits(m.astype(bool)).tobytes()
+                if token not in seen:
+                    seen.add(token)
+                    if certified(m,family):
+                        screened_counts.add(int(m.sum()))
+                        record(m,starting_field(m,ks))
         def variations():
             yield from proposals(incumbent,grad)
             # Extended swaps also move dense layouts an appreciable distance.
@@ -198,13 +258,18 @@ def design_scalar(mask, family, *, scope="center", point=None, metric="peak_Pa",
         delta = (actual-initial_value if target is None else
                  abs(initial_value-target)-abs(actual-target))
         improved = bool(delta > 1e-10*max(1.,abs(initial_value),abs(actual)))
-    met = matched() if target is not None else None
+    met = matched() if tol is not None else None
     passed = met if target is not None else improved
     meta.update(curve_Pa=curve.tolist(),response=response,value=actual,improved=improved,
+                active=int(winning.sum()),tested_counts=sorted(tested_counts),
+                screened_counts=sorted(screened_counts | tested_counts),
+                absolute_error=abs(actual-target) if actual is not None and target is not None else None,
                 met_target=met,trials=trials,elapsed=perf_counter()-start,
                 changed=int(np.count_nonzero(source!=winning)))
     if actual is None:
         reason = "候选在采样频率内没有完整的两侧 −6 dB 交点，带宽无法量化。"
+    elif target is not None and tol is None:
+        reason = "本轮按与给定值的绝对差选择了最接近的同类候选。"
     elif target is not None:
         reason = "复算结果达到给定值的绝对容差。" if met else "本轮最接近给定值的同类候选仍超出容差。"
     elif initial_value is None:
