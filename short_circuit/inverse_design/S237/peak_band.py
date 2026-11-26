@@ -242,7 +242,7 @@ class PeakBandObjective:
             for i in np.flatnonzero(coefficients):
                 receivers[i] = receivers.get(i,0.) + coefficients[i]*curve_receiver(
                     field[i],self.scope,self.point)
-        grad = np.zeros_like(mask)
+        grad = np.zeros(mask.shape,dtype=float)
         for i,receiver in receivers.items():
             if np.any(receiver):
                 adj = solve(mask,i,conv(G[i].conj(),receiver),True)
